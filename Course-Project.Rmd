@@ -1,0 +1,135 @@
+---
+title: "Practical Machine Learning Project Course"
+author: "Gerard"
+date: '2022-08-04'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## SUMMARY
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.\
+The subjects were asked to perform a one handed dumbbell "biceps curl" in five different ways labelled A - E (A being 'correct' and B - E being four different kinds of deviation). For more information, visit <http://groupware.les.inf.puc-rio.br/har>
+
+## Data Processing
+
+Load packages
+
+```{r, cache=T,warning=FALSE,message=FALSE}
+library(tidyverse)
+library(caret)
+library(gbm)
+```
+
+Read in the Data
+
+```{r, cache=T,warning=F,message=F,comment=F}
+train_url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training<-read_csv(train_url)
+testing<-read_csv(test_url)
+```
+
+### Explore data
+
+Let's take a quick look at the data.
+
+```{r, cache=T,warning=FALSE,message=FALSE}
+dim(training)
+dim(testing)
+summary(training[1:20])
+```
+
+The training data set contains 19622 observations and 160 variables, while the testing data set contains 20 observations and 160 variables. The "classe" variable in the training set is the outcome to predict.
+
+### Clean data
+
+In the previous step we could also see some variables with most of the observations being NA's. We will get rid of these as well as some meaningless variables, such as "...1", "user_name", and some time related variables.
+
+Remove columns with more than 20% NA's
+
+```{r, cache=T}
+train_na<-apply(training,2,function(x)sum(is.na(x)))
+test_na<-apply(testing,2,function(x)sum(is.na(x)))
+keepTrain<-(train_na/dim(training)[1])<0.2
+train<-training[,keepTrain]
+test<-testing[,keepTrain]
+```
+
+Remove columns not important for prediction
+
+```{r, cache=T}
+train<-train[,-c(1:7)]
+test<-test[,-c(1:7)]
+```
+
+We also looked for variables with near zero variance with the code below but found none:
+
+```{r, cache=T}
+nzv<-nearZeroVar(train) ## none found
+```
+
+Set outcome variable "classe" as factor
+
+```{r, cache=T}
+train$classe<-as.factor(train$classe)
+```
+
+# Model fitting
+
+Now that we have the data clean and ready we will look to fit a model for prediction.
+
+### Split training set in training and cross validation
+
+Fist we will divide the data in a training set and a cross validation set that we'll use to evaluate the performance of our models.
+
+```{r, cache=T}
+set.seed(12345)
+trainIndex<-createDataPartition(train$classe,p=.7,list=F)
+trainSet<-train[trainIndex,] 
+cv<-train[-trainIndex,]
+```
+
+### Fit different models
+
+We will fit two different different models, Random Forests and Stochastic Gradient Boosting, to see which fits the data better. To train the model and find the best parameters for the models we'll use 10-fold cross validation.
+
+```{r model fit, cache=T,warning=F,message=F}
+cvCtrl <- trainControl(method = "cv", number = 10)
+m_rf<-train(classe~.,data=trainSet,method="rf",trControl=cvCtrl)
+m_gbm<-train(classe~.,data=trainSet,method="gbm",trControl=cvCtrl,verbose=F)
+```
+
+### Predict classes
+
+Now we'll predict the classes on the cross validation set using both models and calculate their accuracy.
+
+```{r accuracy, cache=T}
+pred_rf<- predict(m_rf,cv)
+pred_gbm<-predict(m_gbm,cv)
+postResample(pred_rf,cv$classe)
+postResample(pred_gbm,cv$classe)
+```
+
+We see that the Random Forest model has a better prediction accuracy with 0.994.
+
+# Predict values on the test set
+
+We'll use the RF model obtained previously to make predictions on the test set.
+
+```{r predictions,cache=T, results='hide'}
+predTest<-predict(m_rf,test)
+```
+
+# Appendix
+
+Plot Decision Tree
+
+```{r plot, comment=F,warning=F,cache=T}
+library(rpart.plot)
+treeModel <- rpart(classe ~ ., data=trainSet, method="class")
+prp(treeModel)
+```
